@@ -41,7 +41,7 @@
   OR = '|'          (* mutually exclusive expressions *)
 
   <EOL> = #'(\\n|\\r)+'          (* end of line but not of the string *)
-  " :auto-whitespace (insta/parser "whitespace = #'[\\ \\t]+' (* whitespace *)")))
+" :auto-whitespace (insta/parser "whitespace = #'[\\ \\t]+' (* whitespace *)")))
 
 (defn- usage-rules
   "conver the docopt argument-parsing language-grammar into EBNF notation using
@@ -50,19 +50,19 @@
   [usage]
   (let [sentinel (fn [& args] nil)]
     (into {} (remove nil?)
-      (t/transform
-        {:command     (fn [name] [(keyword name) (combi/string name)])
-         :argument    (fn [name] [(keyword name) (combi/regexp "\\S+")])
-         :option-key  keyword
-         :option-name keyword
-         :multiple    sentinel
-         :required    sentinel
-         :optional    sentinel
-         :exclusive   sentinel
-         ; drop the name of the program
-         :usage-line  (fn [& v] (rest v))
-         :USAGE       (fn [& v] (apply concat v))}
-        usage))))
+          (t/transform
+            {:command     (fn [name] [(keyword name) (combi/string name)])
+             :argument    (fn [name] [(keyword name) (combi/regexp "\\S+")])
+             :option-key  keyword
+             :option-name keyword
+             :multiple    sentinel
+             :required    sentinel
+             :optional    sentinel
+             :exclusive   sentinel
+             ; drop the name of the program
+             :usage-line  (fn [& v] (rest v))
+             :USAGE       (fn [& v] (apply concat v))}
+            usage))))
 
 (defn- optionize
   ([name]
@@ -75,10 +75,10 @@
 (defn opt-combi
   [& elements]
   (let [rel (remove nil? elements)]
-    (if (= 1 (count rel)) [(apply hash-map (first rel))] ;; 2 = long and short option
-      (let [pars (apply combi/alt (map second rel))
-            name (first (second rel))]
-        [{name pars} {(ffirst rel) (combi/hide-tag (combi/nt name))}]))))
+    (if (= 1 (count rel)) [(apply hash-map (first rel))]    ;; 2 = long and short option
+                          (let [pars (apply combi/alt (map second rel))
+                                name (first (second rel))]
+                            [{name pars} {(ffirst rel) (combi/hide-tag (combi/nt name))}]))))
 
 (defn- options-rules
   "conver the docopt argument-parsing language-grammar into EBNF notation using
@@ -88,11 +88,11 @@
   (t/transform
     {:option-name    identity
      :option-key     identity
-     :option-default #{} ;; TODO how to do this
+     :option-default #{}                                    ;; TODO how to do this
      :option-arg     #(subs % 1)
      :short-option   optionize
      :long-option    optionize
-     :option-line    opt-combi ;(fn [& v] v)
+     :option-line    opt-combi                              ;(fn [& v] v)
      :OPTIONS        (fn [& v] (apply merge (mapcat identity v)))}
     options))
 
@@ -110,14 +110,14 @@
        :multiple    combi/plus
        :required    combi/cat
        :optional    combi/opt
-       :exclusive   combi/alt; %&
+       :exclusive   combi/alt                               ; %&
        ; drop the name of the program & ignore the use-tag
        :usage-line  (fn [& els] (combi/hide-tag (apply combi/cat (rest els))))
-       :USAGE       (fn [& use-lines] ;; TODO: seems unnecessary, simply return an alternation of inner elements
+       :USAGE       (fn [& use-lines]                       ;; TODO: seems unnecessary, simply return an alternation of inner elements
                       (let [use-names (map #(keyword (str "use" %)) (range (count use-lines)))
-                            content   (apply combi/alt (map combi/nt use-names))
+                            content (apply combi/alt (map combi/nt use-names))
                             use-cases (zipmap use-names use-lines)]
-                        (assoc use-cases :USAGE content)))};; add the start rule
+                        (assoc use-cases :USAGE content)))} ;; add the start rule
       usage)))
 
 (defn parse
@@ -127,40 +127,31 @@
   [docstring args]
   (let [[usage options :as grammar-tree] (docopt-parser docstring)]
     (if (insta/failure? grammar-tree) grammar-tree
-      (let [refs            (non-terminal usage)
-            use-laws        (usage-rules usage)
-            opt-laws        (options-rules options)
-            cli-parser      (insta/parser (merge refs use-laws opt-laws)
-                              :start :USAGE :auto-whitespace :standard)
-            result          (cli-parser (str/join " " args))]
-        (if (insta/failure? result) result
-          (t/transform {:USAGE #(into (hash-map) %&)} result))))))
+                                      (let [refs (non-terminal usage)
+                                            use-laws (usage-rules usage)
+                                            opt-laws (options-rules options)
+                                            cli-parser (insta/parser (merge refs use-laws opt-laws)
+                                                                     :start :USAGE :auto-whitespace :standard)
+                                            result (cli-parser (str/join " " args))]
+                                        (if (insta/failure? result) result
+                                                                    (t/transform {:USAGE #(into (hash-map) %&)} result))))))
 
-(def foo
-  "Usage:
-    prog.py [--count] --OUT --FILE...
+(defn docopt
+  "Parses docopt argument-parsing language and returns a hash-map with the
+  command line arguments according to the described use cases.
+  If no docstring is provided, it defaults to -main :doc metadata.
+  If no arguments are given, clojure's *command-line-args* are used."
+  ([]
+   (let [docstring (-> (ns-publics *ns*)                    ; get the public functions in ns
+                       ('-main)
+                       (meta)
+                       (:doc))]
+     (parse docstring *command-line-args*)))
+  ([docstring]
+   (parse docstring *command-line-args*))
+  ([docstring args]
+   (parse docstring args)))
 
-    Options:
-     -f <path> --FILE=<path>  input file[default:foo]
-     -o --OUT                 out directory
-     --count N                number of operations")
 
-(def bar "
-  Usage:
-    quick_example.py tcp <host> <port> [--timeout]
-    quick_example.py serial <port> [--baud] [--timeout]
-    quick_example.py -h | --help | --version
 
-  Options:
-     --timeout=<value>  input file[default:1200]
-     --baud DB          out directory
-     -h --help          number of operations
-     --version          version")
 
-(def baz (merge (non-terminal (first (insta/parse docopt-parser bar)))
-                (usage-rules (first (insta/parse docopt-parser bar)))
-                (options-rules (second (insta/parse docopt-parser bar)))))
-
-(parse bar
-  ["tcp" "localhost" "20" "--timeout:3200"])
-  ;"-h")
